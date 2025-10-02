@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GraphRAG Visualization</title>
+    <script
+      type="text/javascript"
+      src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"
+      onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js';document.head.appendChild(s);})();"
+    ></script>
+    <style type="text/css">
+      html,
+      body {
+        font-family: Arial, sans-serif;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #f0f2f5;
+      }
+      #graph-container {
+        width: 100%;
+        height: 100%;
+        position: relative;
+      }
+      #mynetwork {
+        width: 100%;
+        height: 100%;
+        border: 1px solid lightgray;
+      }
+      #loading-bar {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #333;
+        font-size: 24px;
+      }
+      #query-container {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        padding: 10px;
+        background-color: rgba(255, 255, 255, 0.9);
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        display: flex;
+        gap: 10px;
+        z-index: 10;
+      }
+      #query-input {
+        flex-grow: 1;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 16px;
+      }
+      #query-button {
+        padding: 8px 16px;
+        border: none;
+        background-color: #4caf50;
+        color: white;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      #query-button:hover {
+        background-color: #45a049;
+      }
+      #results-container {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        right: 10px;
+        max-height: 35%;
+        padding: 15px;
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 8px;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+        overflow-y: auto;
+        z-index: 10;
+        display: none; /* Initially hidden */
+      }
+      #results-container h2 {
+        margin-top: 0;
+      }
+      #results-content {
+        word-wrap: break-word;
+        word-break: break-word;
+        white-space: pre-wrap;
+        line-height: 1.5;
+      }
+      #results-content p {
+        margin: 0 0 10px 0;
+        word-wrap: break-word;
+        word-break: break-word;
+        white-space: pre-wrap;
+      }
+      #results-content pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        max-width: 100%;
+      }
+      #results-content hr {
+        margin: 8px 0;
+        border: none;
+        border-top: 1px solid #ddd;
+      }
+      #results-content h4 {
+        margin: 8px 0 5px 0;
+        font-size: 14px;
+        color: #333;
+      }
+      .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+        margin-right: 10px;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Tooltip 樣式 - 支援長文本換行 */
+      .vis-tooltip {
+        max-width: 400px !important;
+        word-wrap: break-word !important;
+        word-break: break-word !important;
+        white-space: normal !important;
+        line-height: 1.4 !important;
+        font-size: 12px !important;
+        padding: 8px !important;
+        background-color: rgba(0, 0, 0, 0.8) !important;
+        color: white !important;
+        border-radius: 4px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="query-container">
+      <input
+        type="text"
+        id="query-input"
+        placeholder="Ask a question about the graph..."
+      />
+      <button id="query-button">Search</button>
+    </div>
+
+    <div id="graph-container">
+      <div id="mynetwork"></div>
+      <div id="loading-bar">Loading graph...</div>
+    </div>
+
+    <div id="results-container">
+      <h2 id="results-title">Answer</h2>
+      <div id="results-content"></div>
+    </div>
+
+    <script type="text/javascript">
+      const graphData = //__DATA__HERE__;
+      let network = null; // To hold the network instance
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const container = document.getElementById("mynetwork");
+        const loadingBar = document.getElementById("loading-bar");
+        const queryInput = document.getElementById("query-input");
+        const queryButton = document.getElementById("query-button");
+        const resultsContainer = document.getElementById("results-container");
+        const resultsContent = document.getElementById("results-content");
+        const resultsTitle = document.getElementById("results-title");
+
+        const options = {
+          nodes: {
+            shape: "dot",
+            size: 16,
+            font: {
+              size: 14,
+              color: "#333",
+            },
+            borderWidth: 2,
+            color: {
+              border: "#2B7CE9",
+              background: "#97C2FC",
+              highlight: {
+                border: "#FFC300",
+                background: "#FFFFE0",
+              },
+            },
+          },
+          edges: {
+            width: 2,
+            color: {
+              color: "#848484",
+              highlight: "#FFC300",
+            },
+            arrows: {
+              to: { enabled: true, scaleFactor: 0.5 },
+            },
+          },
+          physics: {
+            solver: "forceAtlas2Based",
+            forceAtlas2Based: {
+              gravitationalConstant: -50,
+              centralGravity: 0.01,
+              springLength: 200,
+              springConstant: 0.08,
+              avoidOverlap: 0.5,
+            },
+            stabilization: {
+              iterations: 250,
+            },
+          },
+          interaction: {
+            hover: true,
+            tooltipDelay: 200,
+            tooltip: {
+              delay: 200,
+              fontColor: "white",
+              fontSize: 12,
+              fontFace: "Arial",
+              color: {
+                background: "rgba(0, 0, 0, 0.8)",
+                border: "rgba(0, 0, 0, 0.8)"
+              },
+              borderWidth: 0,
+              shadow: true
+            }
+          },
+        };
+
+        network = new vis.Network(container, graphData, options);
+
+        network.on("stabilizationProgress", function (params) {
+          const widthFactor = params.iterations / params.total;
+          loadingBar.innerHTML =
+            "Stabilizing... " + Math.round(widthFactor * 100) + "%";
+        });
+
+        network.once("stabilizationIterationsDone", function () {
+          loadingBar.style.display = "none";
+        });
+
+        async function handleSearch() {
+          const query = queryInput.value;
+          if (!query) return;
+
+          resultsContainer.style.display = "block";
+          resultsTitle.textContent = "Searching...";
+          resultsContent.innerHTML = '<div class="spinner"></div>';
+          queryButton.disabled = true;
+
+          try {
+            const response = await fetch("http://localhost:3000/api/query", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query }),
+            });
+
+            if (!response.ok) {
+              throw new Error(
+                `Server responded with status: ${response.status}`
+              );
+            }
+
+            const result = await response.json();
+
+            resultsTitle.textContent = "Answer";
+            resultsContent.innerHTML = `
+                        <p>${result.answer.replace(/\n/g, "<br>")}</p>
+                        <hr>
+                        <h4>Evidence from Graph:</h4>
+                        <pre>${
+                          result.context || "No direct evidence found."
+                        }</pre>
+                    `;
+
+            // Highlight relevant nodes
+            if (result.entities && result.entities.length > 0) {
+              network.unselectAll();
+              network.selectNodes(result.entities, false);
+
+              // Optional: Focus on the highlighted nodes
+              network.focus(result.entities[0], {
+                scale: 1.2,
+                animation: true,
+              });
+            }
+          } catch (error) {
+            resultsTitle.textContent = "Error";
+            resultsContent.innerHTML = `<p>Could not get a response. Is the server running? <br><small>${error.message}</small></p>`;
+          } finally {
+            queryButton.disabled = false;
+          }
+        }
+
+        queryButton.addEventListener("click", handleSearch);
+        queryInput.addEventListener("keyup", (event) => {
+          if (event.key === "Enter") {
+            handleSearch();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

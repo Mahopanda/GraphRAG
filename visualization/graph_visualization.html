@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GraphRAG Visualization</title>
+    <script
+      type="text/javascript"
+      src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"
+      onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js';document.head.appendChild(s);})();"
+    ></script>
+    <style type="text/css">
+      html,
+      body {
+        font-family: Arial, sans-serif;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #f0f2f5;
+      }
+      #graph-container {
+        width: 100%;
+        height: 100%;
+        position: relative;
+      }
+      #mynetwork {
+        width: 100%;
+        height: 100%;
+        border: 1px solid lightgray;
+      }
+      #loading-bar {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #333;
+        font-size: 24px;
+      }
+      #query-container {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        padding: 10px;
+        background-color: rgba(255, 255, 255, 0.9);
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        display: flex;
+        gap: 10px;
+        z-index: 10;
+      }
+      #query-input {
+        flex-grow: 1;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 16px;
+      }
+      #query-button {
+        padding: 8px 16px;
+        border: none;
+        background-color: #4caf50;
+        color: white;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      #query-button:hover {
+        background-color: #45a049;
+      }
+      #results-container {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        right: 10px;
+        max-height: 35%;
+        padding: 15px;
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 8px;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+        overflow-y: auto;
+        z-index: 10;
+        display: none; /* Initially hidden */
+      }
+      #results-container h2 {
+        margin-top: 0;
+      }
+      #results-content {
+        word-wrap: break-word;
+        word-break: break-word;
+        white-space: pre-wrap;
+        line-height: 1.5;
+      }
+      #results-content p {
+        margin: 0 0 10px 0;
+        word-wrap: break-word;
+        word-break: break-word;
+        white-space: pre-wrap;
+      }
+      #results-content pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        max-width: 100%;
+      }
+      #results-content hr {
+        margin: 8px 0;
+        border: none;
+        border-top: 1px solid #ddd;
+      }
+      #results-content h4 {
+        margin: 8px 0 5px 0;
+        font-size: 14px;
+        color: #333;
+      }
+      .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+        margin-right: 10px;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Tooltip 樣式 - 支援長文本換行 */
+      .vis-tooltip {
+        max-width: 400px !important;
+        word-wrap: break-word !important;
+        word-break: break-word !important;
+        white-space: normal !important;
+        line-height: 1.4 !important;
+        font-size: 12px !important;
+        padding: 8px !important;
+        background-color: rgba(0, 0, 0, 0.8) !important;
+        color: white !important;
+        border-radius: 4px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="query-container">
+      <input
+        type="text"
+        id="query-input"
+        placeholder="Ask a question about the graph..."
+      />
+      <button id="query-button">Search</button>
+    </div>
+
+    <div id="graph-container">
+      <div id="mynetwork"></div>
+      <div id="loading-bar">Loading graph...</div>
+    </div>
+
+    <div id="results-container">
+      <h2 id="results-title">Answer</h2>
+      <div id="results-content"></div>
+    </div>
+
+    <script type="text/javascript">
+      const graphData = {
+  "nodes": [
+    {
+      "id": "林沖",
+      "label": "林沖",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 林沖，麤鹵匹夫，只會些鎗棒而已，無學無才，無智無術。 <SEP> 與晁蓋、吳用、公孫勝飲酒，並推讓晁蓋為尊。 <SEP> 與晁蓋、吳用、公孫勝飲酒至天明。 <SEP> 推讓晁蓋為尊。",
+      "group": "PERSON"
+    },
+    {
+      "id": "晁蓋",
+      "label": "晁蓋",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 晁蓋，這位山寨首領，曾被眾人扶持著坐在聚義廳的第一把交椅上。他與吳用、公孫勝、林沖等人一同飲酒，並慷慨地分發財物。晁蓋關注著山寨的動態，時常聽取小嘍囉的匯報，並詢問前來報信的朱頭領相關事由，包括是否有金銀財物可供使用。在組織行動方面，晁蓋心思縝密，他指示三阮要小心謹慎，迅速完成任務；吩咐劉唐領人下山接應，並強調不可傷害客商的性命；同時也指示杜遷、宋萬帶人下山進行接應。\n\n在一場戰鬥後，晁蓋欣喜地聽聞戰果，得知客人逃命而去且並未受到傷害，他高興地賞賜了報喜的小嘍囉一錠白銀。隨後，他親自吩咐將酒果搬下山，並在金沙灘見到眾頭領扛著車輛。晁蓋還指示撐船去載運馬匹，並邀請朱貴上山參加宴席。\n\n在與眾頭領一同回到山寨聚義廳後，晁蓋檢視了打劫來的財物，並吩咐掌庫的小頭目妥善收貯。對於新俘獲的軍健，晁蓋指示要刺上字號並進行分撥。他回憶起自己曾投托王倫帳下，擔任小頭目的經歷，並提及林教頭的賢弟推讓，使他連得兩場喜事，這一切皆歸功於眾弟兄的才能。晁蓋最終落草為寇，成為一方之主。",
+      "group": "PERSON"
+    },
+    {
+      "id": "吳用",
+      "label": "吳用",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 吳用，村中學究，胸次又無經綸濟世之才，讀些孫吳兵法，未曾有半粒微功。被安排坐在軍師之位，執掌兵權，調用將校，坐在第二位。 <SEP> 與晁蓋、公孫勝、林沖飲酒。 <SEP> 與晁蓋、公孫勝、林沖飲酒至天明。 <SEP> )",
+      "group": "PERSON"
+    },
+    {
+      "id": "公孫勝",
+      "label": "公孫勝",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 公孫勝，名聞江湖，善能用兵，有鬼神不測之機，呼風喚雨之法。雖有些小之法，亦無濟世之才。被安排坐在第三位。 <SEP> 與晁蓋、吳用、林沖飲酒。 <SEP> 與晁蓋、吳用、林沖飲酒至天明。",
+      "group": "PERSON"
+    },
+    {
+      "id": "劉唐",
+      "label": "劉唐",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 劉唐，被杜遷、宋萬苦苦邀請坐了第五位。 <SEP> 接受晁蓋指示，帶人下山接應，被叮囑不可傷害客商性命。 <SEP> 點起一百餘人。 <SEP> 領人下山去接應。 <SEP> 與宋江一同行動",
+      "group": "PERSON"
+    },
+    {
+      "id": "阮小二",
+      "label": "阮小二",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 阮小二，被邀請坐了第六位。",
+      "group": "PERSON"
+    },
+    {
+      "id": "阮小五",
+      "label": "阮小五",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 阮小五，被邀請坐了第七位。",
+      "group": "PERSON"
+    },
+    {
+      "id": "阮小七",
+      "label": "阮小七",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 阮小七，被邀請坐了第八位。",
+      "group": "PERSON"
+    },
+    {
+      "id": "杜遷",
+      "label": "杜遷",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 杜遷，本事低微，為了做人情，邀請劉唐坐了第五位，自己坐了第九位。 <SEP> 接受晁蓋指示，帶人下山接應。 <SEP> 被晁蓋派遣，帶領五十餘人下山接應。 <SEP> 引五十餘人下山接應。",
+      "group": "PERSON"
+    },
+    {
+      "id": "宋萬",
+      "label": "宋萬",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 宋萬，本事低微，為了做人情，邀請劉唐坐了第五位，自己坐了第十位。 <SEP> 接受晁蓋指示，帶人下山接應。 <SEP> 被晁蓋派遣，帶領五十餘人下山接應。 <SEP> 引五十餘人下山接應。",
+      "group": "PERSON"
+    },
+    {
+      "id": "朱貴",
+      "label": "朱貴",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 朱貴，被邀請坐了第十一位。",
+      "group": "PERSON"
+    },
+    {
+      "id": "宋、杜二頭領",
+      "label": "宋、杜二頭領",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 宋、杜二頭領，晁蓋表示今番須請他們來坐。",
+      "group": "PERSON"
+    },
+    {
+      "id": "朱頭領",
+      "label": "朱頭領",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 向晁蓋報信，得知客商隊伍。 <SEP> 使人到寨。 <SEP> 探聽得一起客商，有數十人結聯一處，今晚必從旱路經過。 <SEP> 向晁蓋報知客商消息。 <SEP> 獲得了二十餘輛車子金銀財物，並四五十匹驢騾頭口。",
+      "group": "PERSON"
+    },
+    {
+      "id": "小嘍囉",
+      "label": "小嘍囉",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 向晁蓋報信，得知客商隊伍，並匯報戰果。 <SEP> 報喜道：「虧得朱頭領，得了二十餘輛車子金銀財物，並四五十匹驢騾頭口。」 <SEP> 答道：「那許多客人，見我們來得頭勢猛了，都撇下車子、頭口、行李，逃命去了，並不曾傷害他一箇。」 <SEP> 收到了晁蓋賞賜的一錠白銀。",
+      "group": "PERSON"
+    },
+    {
+      "id": "三阮",
+      "label": "三阮",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 接受晁蓋指示，帶人劫掠客商，並將船隻駛往朱貴酒店。 <SEP> 領人走一遭。 <SEP> 換了衣裳，跨了腰刀，拿了朴刀、欓叉、留客住。 <SEP> 點起一百餘人上廳來。 <SEP> 別了頭領，便下山。 <SEP> 就金沙灘把船載過朱貴酒店裏去了。",
+      "group": "PERSON"
+    },
+    {
+      "id": "黃安",
+      "label": "黃安",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 被捉拿，鎖在後寨監房內。 <SEP> 被鎖在後寨監房內。",
+      "group": "PERSON"
+    },
+    {
+      "id": "王倫",
+      "label": "王倫",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 晁蓋曾投托其帳下，為其小頭目。 <SEP> 晁蓋曾投托帳下。",
+      "group": "PERSON"
+    },
+    {
+      "id": "朱貴酒店",
+      "label": "朱貴酒店",
+      "title": "<b>類型:</b> LOCATION<br><b>描述:</b> 三阮將船隻駛往此處。 <SEP> 三阮將船駛往此處。",
+      "group": "LOCATION"
+    },
+    {
+      "id": "金沙灘",
+      "label": "金沙灘",
+      "title": "<b>類型:</b> LOCATION<br><b>描述:</b> 三阮將船載過此處，晁蓋等人也到此處。 <SEP> 三阮將船載過此處，晁蓋等人也在此處理劫掠來的財物。",
+      "group": "LOCATION"
+    },
+    {
+      "id": "山寨聚義廳",
+      "label": "山寨聚義廳",
+      "title": "<b>類型:</b> LOCATION<br><b>描述:</b> 晁蓋等眾頭領在此處筵宴、分配財物。",
+      "group": "LOCATION"
+    },
+    {
+      "id": "杜遷、宋萬",
+      "label": "杜遷、宋萬",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 被晁蓋派遣，帶領五十餘人下山接應。",
+      "group": "PERSON"
+    },
+    {
+      "id": "二十餘輛車子金銀財物",
+      "label": "二十餘輛車子金銀財物",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被朱頭領獲得。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "四五十匹驢騾頭口",
+      "label": "四五十匹驢騾頭口",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被朱頭領獲得。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "車子、頭口、行李",
+      "label": "車子、頭口、行李",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被客商撇下，逃命去了。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "白銀",
+      "label": "白銀",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 晁蓋賞賜給小嘍囉。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "酒果",
+      "label": "酒果",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 晁蓋叫人拿了酒果下山。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "車輛",
+      "label": "車輛",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被眾頭領扛上岸來。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "馬匹",
+      "label": "馬匹",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被載上船。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "財物",
+      "label": "財物",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被扛抬過在廳上，並進行分類。 <SEP> 被扛抬過在廳上，一包包打開。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "綵帛衣服",
+      "label": "綵帛衣服",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被堆在一邊。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "行貨",
+      "label": "行貨",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被堆在一邊。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "金銀寶貝",
+      "label": "金銀寶貝",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被堆在正面。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "庫",
+      "label": "庫",
+      "title": "<b>類型:</b> LOCATION<br><b>描述:</b> 財物被收貯在此處。 <SEP> 財物被收貯於此處。",
+      "group": "LOCATION"
+    },
+    {
+      "id": "壯浪的軍健",
+      "label": "壯浪的軍健",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 被選出分撥去各寨喂馬砍柴。 <SEP> 被分撥去各寨喂馬砍柴。",
+      "group": "PERSON"
+    },
+    {
+      "id": "軟弱的軍健",
+      "label": "軟弱的軍健",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 被分撥到各處看車切草。",
+      "group": "PERSON"
+    },
+    {
+      "id": "官軍",
+      "label": "官軍",
+      "title": "<b>類型:</b> ORGANIZATION<br><b>描述:</b> 被晁蓋等人贏得。",
+      "group": "ORGANIZATION"
+    },
+    {
+      "id": "人馬船隻",
+      "label": "人馬船隻",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被晁蓋等人收得。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "眾頭領",
+      "label": "眾頭領",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 把車輛扛上岸來。 <SEP> 大喜。 <SEP> 一同上到山寨聚義廳。 <SEP> 看了打劫得許多財物，心中歡喜。",
+      "group": "PERSON"
+    },
+    {
+      "id": "掌庫的箇小頭目",
+      "label": "掌庫的箇小頭目",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 將一半財物收貯在庫，聽候支用。 <SEP> 按照吩咐，將財物分作兩分。",
+      "group": "PERSON"
+    },
+    {
+      "id": "軍健",
+      "label": "軍健",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 臉上被刺了字號。",
+      "group": "PERSON"
+    },
+    {
+      "id": "客商",
+      "label": "客商",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 有數十人結聯一處，今晚必從旱路經過。 <SEP> 見晁蓋等人來得頭勢猛了，都撇下車子、頭口、行李，逃命去了。",
+      "group": "PERSON"
+    },
+    {
+      "id": "頭口馬匹",
+      "label": "頭口馬匹",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 被撐船載去。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "王倫帳下",
+      "label": "王倫帳下",
+      "title": "<b>類型:</b> ORGANIZATION<br><b>描述:</b> 晁蓋曾投托於此處。",
+      "group": "ORGANIZATION"
+    },
+    {
+      "id": "後寨監房",
+      "label": "後寨監房",
+      "title": "<b>類型:</b> LOCATION<br><b>描述:</b> 黃安被鎖於此處。",
+      "group": "LOCATION"
+    },
+    {
+      "id": "OFFICIAL ARMY",
+      "label": "OFFICIAL ARMY",
+      "title": "<b>類型:</b> ORGANIZATION<br><b>描述:</b> 晁蓋等人贏得了官軍。",
+      "group": "ORGANIZATION"
+    },
+    {
+      "id": "PEOPLE, HORSES AND SHIPS",
+      "label": "PEOPLE, HORSES AND SHIPS",
+      "title": "<b>類型:</b> AGREEMENT<br><b>描述:</b> 晁蓋等人收得了人馬船隻。",
+      "group": "AGREEMENT"
+    },
+    {
+      "id": "宋押司",
+      "label": "宋押司",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> )",
+      "group": "PERSON"
+    },
+    {
+      "id": "朱都頭",
+      "label": "朱都頭",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> )",
+      "group": "PERSON"
+    },
+    {
+      "id": "白勝",
+      "label": "白勝",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> )",
+      "group": "PERSON"
+    },
+    {
+      "id": "鄆城縣",
+      "label": "鄆城縣",
+      "title": "<b>類型:</b> LOCATION<br><b>描述:</b> )",
+      "group": "LOCATION"
+    },
+    {
+      "id": "濟州",
+      "label": "濟州",
+      "title": "<b>類型:</b> LOCATION<br><b>描述:</b> )",
+      "group": "LOCATION"
+    },
+    {
+      "id": "驀生人",
+      "label": "驀生人",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> )",
+      "group": "PERSON"
+    },
+    {
+      "id": "宋江",
+      "label": "宋江",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 公職人員，被閻婆稱呼為「押司」",
+      "group": "PERSON"
+    },
+    {
+      "id": "閻婆",
+      "label": "閻婆",
+      "title": "<b>類型:</b> PERSON<br><b>描述:</b> 稱呼宋江為「押司」，與宋江有兩日未見的關係",
+      "group": "PERSON"
+    }
+  ],
+  "edges": [
+    {
+      "from": "晁蓋",
+      "to": "林沖",
+      "title": "<b>權重:</b> 3<br><b>描述:</b> 林沖一行人請晁蓋上了轎馬，都投大寨裏來，並扶晁蓋坐上第一位交椅。 <SEP> 晁蓋、吳用、公孫勝三人扶住林沖，堅持讓林沖坐第四位。"
+    },
+    {
+      "from": "吳用",
+      "to": "林沖",
+      "title": "<b>權重:</b> 3<br><b>描述:</b> 林沖推薦吳用做軍師，執掌兵權，調用將校，坐第二位。 <SEP> 晁蓋、吳用、公孫勝三人扶住林沖，堅持讓林沖坐第四位。 <SEP> 吳用對於林沖推薦他做軍師一事，表示自己胸次無經綸濟世之才，未曾有半粒微功，不敢占上。"
+    },
+    {
+      "from": "公孫勝",
+      "to": "林沖",
+      "title": "<b>權重:</b> 2<br><b>描述:</b> 林沖邀請公孫勝坐第三位，稱讚其善能用兵，有鬼神不測之機。 <SEP> 林沖稱讚公孫勝善能用兵，有鬼神不測之機，呼風喚雨之法，並力勸公孫勝坐第三位。"
+    },
+    {
+      "from": "吳用",
+      "to": "晁蓋",
+      "title": "<b>權重:</b> 5<br><b>描述:</b> 晁蓋、吳用、公孫勝三人表示若林沖再推讓，晁蓋等便告退。 <SEP> 吳用對於晁蓋安排他做軍師一事，表示自己胸次無經綸濟世之才，未曾有半粒微功，不敢占上。 <SEP> 吳用對晁蓋提出的關於宋押司的酬謝和營救白勝的憂心表示，兄長不必憂心，小生自有擺劃 <SEP> 吳用提出為了迎敵官軍，應該商量屯糧、造船、制辦軍器，安排寨柵、城垣，添造房屋，整頓衣袍、鎧甲，打造鎗、刀、弓、箭 <SEP> 晁蓋認為吳用的策略（妙策）正確，表示全仗軍師妙策指教"
+    },
+    {
+      "from": "公孫勝",
+      "to": "晁蓋",
+      "title": "<b>權重:</b> 2<br><b>描述:</b> 晁蓋、吳用、公孫勝三人表示若林沖再推讓，晁蓋等便告退。 <SEP> 公孫勝對於晁蓋安排他坐第三位一事，表示自己無濟世之才，不敢占上。"
+    },
+    {
+      "from": "宋萬",
+      "to": "杜遷",
+      "title": "<b>權重:</b> 4<br><b>描述:</b> 杜遷和宋萬由於自身本事低微，為了做人情，苦苦邀請劉唐坐了第五位。 <SEP> 杜遷、宋萬為了做人情，苦苦邀請杜遷坐了第九位。 <SEP> 杜遷、宋萬為了做人情，苦苦邀請宋萬坐了第十位。 <SEP> 杜遷和宋萬見殺了王倫，尋思自身本事低微，不若做人情。"
+    },
+    {
+      "from": "劉唐",
+      "to": "杜遷",
+      "title": "<b>權重:</b> 2<br><b>描述:</b> 杜遷和宋萬為了做人情，苦苦邀請劉唐坐了第五位。 <SEP> 杜遷、宋萬為了做人情，苦苦邀請劉唐坐了第五位。"
+    },
+    {
+      "from": "劉唐",
+      "to": "宋萬",
+      "title": "<b>權重:</b> 2<br><b>描述:</b> 杜遷和宋萬為了做人情，苦苦邀請劉唐坐了第五位。 <SEP> 杜遷、宋萬為了做人情，苦苦邀請劉唐坐了第五位。"
+    },
+    {
+      "from": "宋萬",
+      "to": "晁蓋",
+      "title": "<b>權重:</b> 3<br><b>描述:</b> 晁蓋點名邀請宋萬來坐。 <SEP> 杜遷、宋萬見殺了王倫，尋思自身本事低微，不若做人情。 <SEP> 晁蓋請宋萬來坐。"
+    },
+    {
+      "from": "杜遷",
+      "to": "王倫",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬見殺了王倫。"
+    },
+    {
+      "from": "宋萬",
+      "to": "王倫",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬見殺了王倫。"
+    },
+    {
+      "from": "杜遷",
+      "to": "林沖",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬見殺了王倫，尋思自身本事低微，不若做人情。"
+    },
+    {
+      "from": "宋萬",
+      "to": "林沖",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬見殺了王倫，尋思自身本事低微，不若做人情。"
+    },
+    {
+      "from": "吳用",
+      "to": "杜遷",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬見殺了王倫，尋思自身本事低微，不若做人情。"
+    },
+    {
+      "from": "吳用",
+      "to": "宋萬",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬見殺了王倫，尋思自身本事低微，不若做人情。"
+    },
+    {
+      "from": "晁蓋",
+      "to": "杜遷",
+      "title": "<b>權重:</b> 2<br><b>描述:</b> 杜遷、宋萬見殺了王倫，尋思自身本事低微，不若做人情。 <SEP> 晁蓋請杜遷來坐。"
+    },
+    {
+      "from": "杜遷",
+      "to": "阮小二",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請阮小二坐了第六位。"
+    },
+    {
+      "from": "宋萬",
+      "to": "阮小二",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請阮小二坐了第六位。"
+    },
+    {
+      "from": "杜遷",
+      "to": "阮小五",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請阮小五坐了第七位。"
+    },
+    {
+      "from": "宋萬",
+      "to": "阮小五",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請阮小五坐了第七位。"
+    },
+    {
+      "from": "杜遷",
+      "to": "阮小七",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請阮小七坐了第八位。"
+    },
+    {
+      "from": "宋萬",
+      "to": "阮小七",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請阮小七坐了第八位。"
+    },
+    {
+      "from": "杜遷",
+      "to": "杜遷",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請杜遷坐了第九位。"
+    },
+    {
+      "from": "宋萬",
+      "to": "宋萬",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請宋萬坐了第十位。"
+    },
+    {
+      "from": "朱貴",
+      "to": "杜遷",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請朱貴坐了第十一位。"
+    },
+    {
+      "from": "宋萬",
+      "to": "朱貴",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 杜遷、宋萬為了做人情，苦苦邀請朱貴坐了第十一位。"
+    },
+    {
+      "from": "劉唐",
+      "to": "晁蓋",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋請劉唐來坐。"
+    },
+    {
+      "from": "晁蓋",
+      "to": "阮小二",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋請阮小二來坐。"
+    },
+    {
+      "from": "晁蓋",
+      "to": "阮小五",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋請阮小五來坐。"
+    },
+    {
+      "from": "晁蓋",
+      "to": "阮小七",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋請阮小七來坐。"
+    },
+    {
+      "from": "晁蓋",
+      "to": "朱貴",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋請朱貴來坐。"
+    },
+    {
+      "from": "宋、杜二頭領",
+      "to": "晁蓋",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋表示今番須請宋、杜二頭領來坐。"
+    },
+    {
+      "from": "宋、杜二頭領",
+      "to": "杜遷",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 宋、杜二頭領指的包括杜遷。"
+    },
+    {
+      "from": "宋、杜二頭領",
+      "to": "宋萬",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 宋、杜二頭領指的包括宋萬。"
+    },
+    {
+      "from": "宋押司",
+      "to": "晁蓋",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋認為宋押司對他與弟兄們的性命有恩，並且認為知恩不報非為人也，因此認為應當派人到鄆城縣致謝，此為第一件要緊事務"
+    },
+    {
+      "from": "晁蓋",
+      "to": "朱都頭",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋認為朱都頭對他與弟兄們的性命有恩，並且認為知恩不報非為人也，因此認為應當派人到鄆城縣致謝，此為第一件要緊事務"
+    },
+    {
+      "from": "晁蓋",
+      "to": "白勝",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 晁蓋認為必須去救被陷在濟州大牢裡的白勝"
+    },
+    {
+      "from": "吳用",
+      "to": "宋押司",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 吳用認為宋押司是個仁義之人，緊地不望我們酬謝，然雖如此，禮不可缺，早晚待山寨麤安，必用一箇兄弟自去"
+    },
+    {
+      "from": "吳用",
+      "to": "白勝",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 吳用建議讓驀生人去濟州，在那裡使錢，買上囑下，鬆寬白勝，便好脫身"
+    },
+    {
+      "from": "吳用",
+      "to": "驀生人",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 吳用建議讓驀生人去濟州，在那裡使錢，買上囑下，鬆寬白勝"
+    },
+    {
+      "from": "濟州",
+      "to": "白勝",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 白勝陷在濟州大牢裡"
+    },
+    {
+      "from": "劉唐",
+      "to": "宋江",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 宋江與劉唐一同行動"
+    },
+    {
+      "from": "宋江",
+      "to": "閻婆",
+      "title": "<b>權重:</b> 1<br><b>描述:</b> 閻婆兩日未見宋江，並稱呼其為「押司」"
+    }
+  ]
+};
+      let network = null; // To hold the network instance
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const container = document.getElementById("mynetwork");
+        const loadingBar = document.getElementById("loading-bar");
+        const queryInput = document.getElementById("query-input");
+        const queryButton = document.getElementById("query-button");
+        const resultsContainer = document.getElementById("results-container");
+        const resultsContent = document.getElementById("results-content");
+        const resultsTitle = document.getElementById("results-title");
+
+        const options = {
+          nodes: {
+            shape: "dot",
+            size: 16,
+            font: {
+              size: 14,
+              color: "#333",
+            },
+            borderWidth: 2,
+            color: {
+              border: "#2B7CE9",
+              background: "#97C2FC",
+              highlight: {
+                border: "#FFC300",
+                background: "#FFFFE0",
+              },
+            },
+          },
+          edges: {
+            width: 2,
+            color: {
+              color: "#848484",
+              highlight: "#FFC300",
+            },
+            arrows: {
+              to: { enabled: true, scaleFactor: 0.5 },
+            },
+          },
+          physics: {
+            solver: "forceAtlas2Based",
+            forceAtlas2Based: {
+              gravitationalConstant: -50,
+              centralGravity: 0.01,
+              springLength: 200,
+              springConstant: 0.08,
+              avoidOverlap: 0.5,
+            },
+            stabilization: {
+              iterations: 250,
+            },
+          },
+          interaction: {
+            hover: true,
+            tooltipDelay: 200,
+            tooltip: {
+              delay: 200,
+              fontColor: "white",
+              fontSize: 12,
+              fontFace: "Arial",
+              color: {
+                background: "rgba(0, 0, 0, 0.8)",
+                border: "rgba(0, 0, 0, 0.8)"
+              },
+              borderWidth: 0,
+              shadow: true
+            }
+          },
+        };
+
+        network = new vis.Network(container, graphData, options);
+
+        network.on("stabilizationProgress", function (params) {
+          const widthFactor = params.iterations / params.total;
+          loadingBar.innerHTML =
+            "Stabilizing... " + Math.round(widthFactor * 100) + "%";
+        });
+
+        network.once("stabilizationIterationsDone", function () {
+          loadingBar.style.display = "none";
+        });
+
+        async function handleSearch() {
+          const query = queryInput.value;
+          if (!query) return;
+
+          resultsContainer.style.display = "block";
+          resultsTitle.textContent = "Searching...";
+          resultsContent.innerHTML = '<div class="spinner"></div>';
+          queryButton.disabled = true;
+
+          try {
+            const response = await fetch("http://localhost:3000/api/query", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query }),
+            });
+
+            if (!response.ok) {
+              throw new Error(
+                `Server responded with status: ${response.status}`
+              );
+            }
+
+            const result = await response.json();
+
+            resultsTitle.textContent = "Answer";
+            resultsContent.innerHTML = `
+                        <p>${result.answer.replace(/\n/g, "<br>")}</p>
+                        <hr>
+                        <h4>Evidence from Graph:</h4>
+                        <pre>${
+                          result.context || "No direct evidence found."
+                        }</pre>
+                    `;
+
+            // Highlight relevant nodes
+            if (result.entities && result.entities.length > 0) {
+              network.unselectAll();
+              network.selectNodes(result.entities, false);
+
+              // Optional: Focus on the highlighted nodes
+              network.focus(result.entities[0], {
+                scale: 1.2,
+                animation: true,
+              });
+            }
+          } catch (error) {
+            resultsTitle.textContent = "Error";
+            resultsContent.innerHTML = `<p>Could not get a response. Is the server running? <br><small>${error.message}</small></p>`;
+          } finally {
+            queryButton.disabled = false;
+          }
+        }
+
+        queryButton.addEventListener("click", handleSearch);
+        queryInput.addEventListener("keyup", (event) => {
+          if (event.key === "Enter") {
+            handleSearch();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

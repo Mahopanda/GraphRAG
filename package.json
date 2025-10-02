@@ -1,0 +1,26 @@
+{
+  "name": "graphrag-node-dev",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/genai": "^1.21.0",
+    "better-sqlite3": "^12.4.1",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^17.2.2",
+    "edit-distance": "^1.0.5",
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2",
+    "graphology-components": "^1.5.4",
+    "graphology-metrics": "^2.4.0",
+    "tiktoken": "^1.0.22",
+    "zod": "^4.1.11"
+  }
+}

@@ -12,6 +12,8 @@
  * --rows <數量>     處理行數 (預設: 100)
  * --delay <毫秒>    延遲時間 (預設: 1000)
  * --retries <次數>  重試次數 (預設: 3)
+ * --algorithm <演算法> 社群檢測演算法: leiden|louvain (預設: leiden)
+ * --hierarchical   使用層次化檢測 (僅適用於 Leiden 演算法)
  * --help           顯示說明
  *
  * 範例:
@@ -40,6 +42,8 @@ function parseArgs() {
     rows: 100,
     delay: 1000,
     retries: 3,
+    algorithm: "leiden",
+    hierarchical: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -66,6 +70,13 @@ function parseArgs() {
           options.retries = parseInt(value);
           i++;
           break;
+        case "algorithm":
+          options.algorithm = value;
+          i++;
+          break;
+        case "hierarchical":
+          options.hierarchical = true;
+          break;
         case "help":
           showHelp();
           process.exit(0);
@@ -90,6 +101,8 @@ function showHelp() {
   --rows <數量>     處理行數 (預設: 100)
   --delay <毫秒>    延遲時間 (預設: 1000)
   --retries <次數>  重試次數 (預設: 3)
+  --algorithm <演算法> 社群檢測演算法: leiden|louvain (預設: leiden)
+  --hierarchical   使用層次化檢測 (僅適用於 Leiden 演算法)
   --help           顯示此說明
 
 載入模式說明:
@@ -107,12 +120,12 @@ function showHelp() {
 `);
 }
 
-// 延遲函數
+// 延遲函式
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// 清理和驗證文本內容
+// 清理與驗證文字內容
 function cleanAndValidateText(text) {
   if (!text || typeof text !== "string") {
     return null;
@@ -151,7 +164,7 @@ function readCsvAndGetChunks(dataFilePath, rowLimit, mode) {
           if (text && text.trim()) {
             let processedText = text.trim();
 
-            // 根據模式進行不同的處理
+            // 依模式進行不同處理
             if (mode === "fixed") {
               const cleanedText = cleanAndValidateText(text);
               if (!cleanedText) return;
@@ -178,13 +191,13 @@ function readCsvAndGetChunks(dataFilePath, rowLimit, mode) {
         resolve(chunks);
       })
       .on("error", (error) => {
-        console.error("讀取檔案時出錯:", error);
+        console.error("讀取檔案時發生錯誤:", error);
         reject(error);
       });
   });
 }
 
-// 生成視覺化檔案
+// 產生視覺化檔案
 function generateVisualizationFile(graphData) {
   const templatePath = path.join(
     __dirname,
@@ -238,7 +251,7 @@ function formatGraphForVisualization(graph) {
   return { nodes, edges };
 }
 
-// 逐個處理文字塊（用於 ultra-slow 和 fixed 模式）
+// 逐一處理文字塊（用於 ultra-slow 與 fixed 模式）
 async function processChunksOneByOne(docId, textChunks, llmService, delayMs) {
   console.log(`逐個處理 ${textChunks.length} 個文字塊...`);
 
@@ -264,7 +277,7 @@ async function processChunksOneByOne(docId, textChunks, llmService, delayMs) {
     console.log(`內容預覽: ${chunk.substring(0, 100)}...`);
 
     try {
-      // 處理單個文字塊
+      // 處理單一文字塊
       const result = await extractor._process_single_content(
         { text: chunk, chunk_id: `chunk_${i}` },
         i,
@@ -287,7 +300,7 @@ async function processChunksOneByOne(docId, textChunks, llmService, delayMs) {
       // 繼續處理下一個
     }
 
-    // 添加延遲（除了最後一個）
+    // 加入延遲（除了最後一個）
     if (i < textChunks.length - 1 && delayMs > 0) {
       console.log(`等待 ${delayMs}ms...`);
       await delay(delayMs);
@@ -304,12 +317,12 @@ async function processChunksOneByOne(docId, textChunks, llmService, delayMs) {
   };
 }
 
-// 帶重試機制的 GraphRAG 處理
-async function runGraphRAGWithRetry(docId, textChunks, llmService, maxRetries) {
+// 具重試機制的 GraphRAG 處理
+async function runGraphRAGWithRetry(docId, textChunks, llmService, maxRetries, algorithmOptions = {}) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`嘗試第 ${attempt} 次處理...`);
-      const results = await runGraphRAG(docId, textChunks, llmService);
+      const results = await runGraphRAG(docId, textChunks, llmService, algorithmOptions);
       return results;
     } catch (error) {
       console.error(`第 ${attempt} 次嘗試失敗:`, error.message);
@@ -319,15 +332,15 @@ async function runGraphRAGWithRetry(docId, textChunks, llmService, maxRetries) {
       }
 
       // 等待一段時間後重試
-      const waitTime = attempt * 2000; // 2秒, 4秒, 6秒
+      const waitTime = attempt * 2000; // 2 秒、4 秒、6 秒
       console.log(`等待 ${waitTime / 1000} 秒後重試...`);
       await delay(waitTime);
     }
   }
 }
 
-// 帶延遲的 GraphRAG 處理
-async function runGraphRAGWithDelay(docId, textChunks, llmService, delayMs) {
+// 具延遲的 GraphRAG 處理
+async function runGraphRAGWithDelay(docId, textChunks, llmService, delayMs, algorithmOptions = {}) {
   console.log(`使用 ${delayMs}ms 延遲處理 ${textChunks.length} 個文字塊...`);
 
   const entity_types = [
@@ -343,7 +356,7 @@ async function runGraphRAGWithDelay(docId, textChunks, llmService, delayMs) {
 
   const extractor = new GraphExtractorBasic(llmService, language, entity_types);
 
-  // 重寫 _process_single_content 方法以添加延遲
+  // 改寫 _process_single_content 以加入延遲
   const originalProcess = extractor._process_single_content.bind(extractor);
   extractor._process_single_content = async function (
     chunk_info,
@@ -375,7 +388,7 @@ async function runGraphRAGWithDelay(docId, textChunks, llmService, delayMs) {
   }
 }
 
-// 主執行函數
+// 主執行函式
 async function main() {
   const options = parseArgs();
 
@@ -394,6 +407,10 @@ async function main() {
   console.log(`資料檔案: ${options.dataFile}`);
   console.log(`載入模式: ${options.mode}`);
   console.log(`處理行數: ${options.rows}`);
+  console.log(`社群檢測算法: ${options.algorithm}`);
+  if (options.algorithm === 'leiden' && options.hierarchical) {
+    console.log(`層次化檢測: 啟用`);
+  }
   if (options.mode === "slow" || options.mode === "ultra-slow") {
     console.log(`延遲設定: ${options.delay}ms`);
   }
@@ -424,16 +441,26 @@ async function main() {
       return;
     }
 
-    // 3. 根據模式執行不同的處理流程
+    // 3. 依模式執行不同處理流程
     console.log("開始 GraphRAG 處理...");
     const docId = `custom_data_${Date.now()}`;
     const llmService = new LlmService("gemini-2.5-flash-lite");
+
+    // 準備算法選項
+    const algorithmOptions = {
+      algorithm: options.algorithm,
+      verbose: true
+    };
+    
+    if (options.algorithm === 'leiden' && options.hierarchical) {
+      algorithmOptions.levels = [0, 1, 2];
+    }
 
     let results;
 
     switch (options.mode) {
       case "standard":
-        results = await runGraphRAG(docId, textChunks, llmService);
+        results = await runGraphRAG(docId, textChunks, llmService, algorithmOptions);
         break;
 
       case "slow":
@@ -441,7 +468,8 @@ async function main() {
           docId,
           textChunks,
           llmService,
-          options.delay
+          options.delay,
+          algorithmOptions
         );
         break;
 
@@ -466,7 +494,8 @@ async function main() {
           docId,
           textChunks,
           llmService,
-          options.retries
+          options.retries,
+          algorithmOptions
         );
         break;
 
@@ -491,13 +520,13 @@ async function main() {
         )
       );
 
-      // 5. 生成視覺化檔案
-      console.log("生成視覺化檔案...");
+      // 5. 產生視覺化檔案
+      console.log("產生視覺化檔案...");
       const vizData = formatGraphForVisualization(results.resolved_graph);
       generateVisualizationFile(vizData);
     } else {
-      // 對於 ultra-slow 和 fixed 模式，生成簡化的視覺化
-      console.log("生成簡化視覺化檔案...");
+      // 對於 ultra-slow 與 fixed 模式，產生簡化的視覺化
+      console.log("產生簡化視覺化檔案...");
       const nodes = results.all_entities_data.map((entity, index) => ({
         id: entity.entity_name || `entity_${index}`,
         label: entity.entity_name || `entity_${index}`,
@@ -521,9 +550,9 @@ async function main() {
 
     console.log("\n資料載入完成!");
     console.log("現在可以存取: http://localhost:3000");
-    console.log("提示: 確保伺服器正在執行 (node server.js)");
+    console.log("提示: 請確保伺服器正在執行 (node server.js)");
   } catch (error) {
-    console.error("\n處理過程中出現錯誤:");
+    console.error("\n處理過程中發生錯誤:");
     console.error(error.message);
 
     if (error.message.includes("503")) {

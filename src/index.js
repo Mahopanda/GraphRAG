@@ -63,7 +63,7 @@ function saveGraphToDb(graph) {
 
 // --- Main Orchestration ---
 
-async function runGraphRAG(doc_id, text_chunks, llmService) {
+async function runGraphRAG(doc_id, text_chunks, llmService, options = {}) {
   console.log(`--- Starting GraphRAG process for doc_id: ${doc_id} ---`);
 
   // 1. Graph Extraction
@@ -111,7 +111,7 @@ async function runGraphRAG(doc_id, text_chunks, llmService) {
 
   // 4. Community Detection & Reporting
   console.log("正在進行社群檢測與報告生成...");
-  const reporter = new CommunityReportsExtractor(llmService);
+  const reporter = new CommunityReportsExtractor(llmService, options);
   const reports = await reporter.extract(resolved_graph);
 
   console.log(`--- GraphRAG process finished ---`);

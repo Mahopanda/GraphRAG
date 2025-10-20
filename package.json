@@ -4,7 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "load": "node scripts/load_data.js",
+    "rebuild": "node scripts/rebuild_all.js",
+    "clean": "node scripts/clear_all.js",
+    "search": "node search_graph.js",
+    "demo": "node water_margin_demo.js",
+    "cache:stats": "node scripts/manage_cache.js stats",
+    "cache:clean": "node scripts/manage_cache.js clean",
+    "cache:clear": "node scripts/manage_cache.js clear"
   },
   "keywords": [],
   "author": "",

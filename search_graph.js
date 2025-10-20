@@ -1,5 +1,6 @@
 const Database = require("better-sqlite3");
 const Graph = require("graphology");
+require("dotenv").config();
 const { LlmService } = require("./src/llm-service");
 const { FullTextSearch } = require("./src/fulltext-search");
 

@@ -6,7 +6,7 @@ const { runGraphRAG, setupSchema } = require("./src/index");
 const { LlmService } = require("./src/llm-service");
 
 const MD_FILE_PATH = path.join(__dirname, "Water_Margin.md");
-const CHUNK_SIZE = 500; // 每個文字塊的大小（字符數）
+const CHUNK_SIZE = 1000; 
 
 /**
  * 從 Markdown 檔案讀取內容並分割成適當的文字塊
@@ -133,6 +133,11 @@ async function main() {
     return;
   }
 
+  console.log(`\n文字塊資訊：`);
+  console.log(`- 總共 ${textChunks.length} 個文字塊`);
+  console.log(`- 第一個文字塊預覽：${textChunks[0].substring(0, 100)}...`);
+  console.log(`- 最後一個文字塊預覽：${textChunks[textChunks.length - 1].substring(0, 100)}...`);
+
   // 3. 使用即時 LLM 服務執行完整的 GraphRAG 流程
   const docId = `water_margin_demo_${Date.now()}`;
   const llmService = new LlmService("gemini-2.5-flash-lite"); // 全使用 gemini-2.5-flash-lite
@@ -152,8 +157,16 @@ async function main() {
   );
 
   // 4. 從解析後的圖形產生視覺化檔案
-  const vizData = formatGraphForVisualization(results.resolved_graph);
-  generateVisualizationFile(vizData);
+  if (results.resolved_graph.order > 0) {
+    const vizData = formatGraphForVisualization(results.resolved_graph);
+    generateVisualizationFile(vizData);
+  } else {
+    console.log("\n⚠️  圖中沒有節點，無法產生視覺化檔案");
+    console.log("可能的原因：");
+    console.log("1. 文字內容無法提取到實體和關係");
+    console.log("2. LLM回應格式不正確");
+    console.log("3. 文字塊太小或內容不適合");
+  }
 
   console.log("\n--- 示範完成 ---");
 }

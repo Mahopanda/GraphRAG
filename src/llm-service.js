@@ -1,17 +1,58 @@
 const { GoogleGenAI } = require("@google/genai");
-require("dotenv").config();
 const { LlmCache } = require("./llm-cache");
 
-const apiKey = process.env.GEMINI_API_KEY;
-let ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+let ai = null;
+let apiKey = null;
+
+// 延遲初始化函數
+function initializeAI() {
+  if (ai !== null) return ai; // 已經初始化過了
+  
+  // 確保 dotenv 已載入
+  if (!process.env.GEMINI_API_KEY) {
+    require("dotenv").config();
+  }
+  
+  apiKey = process.env.GEMINI_API_KEY;
+  
+  // 驗證API密鑰格式
+  if (apiKey) {
+    if (apiKey.startsWith('AIza')) {
+      try {
+        ai = new GoogleGenAI({ apiKey });
+        console.log("✅ Gemini API 密鑰格式正確");
+      } catch (error) {
+        console.error("❌ Gemini API 密鑰初始化失敗:", error.message);
+        ai = false; // 標記為失敗
+      }
+    } else {
+      console.error("❌ Gemini API 密鑰格式不正確，應以 'AIza' 開頭");
+      ai = false; // 標記為失敗
+    }
+  } else {
+    console.log("⚠️  未設定 GEMINI_API_KEY 環境變數");
+    ai = false; // 標記為失敗
+  }
+  
+  return ai;
+}
 
 class LlmService {
   constructor(modelName = "gemini-2.5-flash-lite", enableCache = true) {
     this.modelName = modelName;
     this.cache = enableCache ? new LlmCache() : null;
+    this._initialized = false;
 
-    if (ai) {
-      console.log(`LLM Service initialized with model: ${modelName}`);
+    // 延遲初始化檢查
+    this._checkInitialization();
+  }
+
+  _checkInitialization() {
+    if (this._initialized) return;
+    
+    const aiInstance = initializeAI();
+    if (aiInstance) {
+      console.log(`LLM Service initialized with model: ${this.modelName}`);
       if (this.cache) {
         console.log("💾 LLM 快取已啟用");
         this.cache.cleanExpiredCache();
@@ -20,6 +61,7 @@ class LlmService {
           `📊 快取統計：${stats.count} 個檔案，${stats.totalSizeMB} MB`
         );
       }
+      this._initialized = true;
     } else {
       console.log(
         "LLM Service initialized without API key - features disabled"
@@ -59,7 +101,11 @@ class LlmService {
   }
 
   async chat(promptOrHistory, timeoutMs = 30000) {
-    if (!ai) {
+    const aiInstance = initializeAI();
+    if (!aiInstance) {
+      console.error("❌ LLM service is not available. Please set GEMINI_API_KEY.");
+      console.error("   請檢查 .env 檔案中是否正確設定了 GEMINI_API_KEY");
+      console.error("   或使用 export GEMINI_API_KEY=your_api_key 設定環境變數");
       return "Error: LLM service is not available. Please set GEMINI_API_KEY.";
     }
 
@@ -94,7 +140,7 @@ class LlmService {
         });
 
         // 建立 API 呼叫 Promise
-        const apiPromise = ai.models.generateContent({
+        const apiPromise = aiInstance.models.generateContent({
           model: this.modelName,
           contents,
           // 可選：加上 generationConfig 以降低負載峰值
@@ -113,6 +159,14 @@ class LlmService {
         return responseText;
       } catch (err) {
         const msg = `${err?.status || ""} ${err?.message || err}`;
+
+        // 檢查是否為 API 密鑰錯誤
+        if (msg.includes("API key not valid") || msg.includes("INVALID_ARGUMENT")) {
+          console.error(`❌ Gemini API 密鑰無效或已過期`);
+          console.error(`請檢查 .env 文件中的 GEMINI_API_KEY 是否正確`);
+          console.error(`錯誤詳情: ${err.message}`);
+          return "API密鑰無效，無法處理此請求";
+        }
 
         // 檢查是否為 timeout 錯誤
         if (msg.includes("timeout")) {

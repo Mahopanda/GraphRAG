@@ -161,4 +161,5 @@ out/
 *.tar.gz
 *.zip
 *.rar
+
 graphrag.db

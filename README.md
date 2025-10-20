@@ -1,31 +1,80 @@
 # Node.js GraphRAG 實作說明
 
-此專案將 GraphRAG 概念在 Node.js 環境實作， 進行快速的開發與驗證，並整合SQLite全文檢索功能、加入查詢組合策略。
+此專案將 GraphRAG 概念在 Node.js 環境實作，進行快速的開發與驗證，並整合 SQLite 全文檢索功能、加入查詢組合策略。
 
 ## 快速開始
 
-### 1. 安裝套件
-```bash
-npm install
-```
+### 方法一：使用 Makefile（推薦）
 
-### 2. 設定 API 金鑰
 ```bash
+# 1. 安裝套件
+make install
+
+# 2. 設定 API 金鑰
 export GEMINI_API_KEY=your_actual_api_key_here
+
+# 或者建立 .env 檔案
+echo "GEMINI_API_KEY=your_actual_api_key_here" > .env
+
+# 3. 完整重建（清空 + 載入 + 啟動）
+make quick-start
+
+# 或分步執行：
+make clean      # 清空資料
+make rebuild    # 重建圖譜
+make server     # 啟動伺服器
 ```
 
-### 3. 載入資料
+### 方法二
+
 ```bash
-# 使用統一載入腳本（推薦）
+# 1. 環境設定
+npm install
+export GEMINI_API_KEY=your_actual_api_key_here
+
+# 2. 載入資料（預設使用 Leiden 演算法）
 node scripts/load_data.js test_data.csv --mode standard --rows 10
 
-# 或使用個別腳本
-node scripts/load_custom_data.js test_data.csv 10
+# 3. 啟動伺服器
+node server.js
 ```
 
-### 4. 執行水滸傳資料示範
+### 查看結果
+
+開啟瀏覽器造訪 `http://localhost:3000` 查看圖譜視覺化。
+
+## Makefile 使用指南
+
+本專案提供了完整的 Makefile 來簡化操作：
+
 ```bash
-# 執行完整的 GraphRAG 流程示範（使用水滸傳資料 https://zh.wikisource.org/wiki/%E6%B0%B4%E6%BB%B8%E5%82%B3_(120%E5%9B%9E%E6%9C%AC)/%E7%AC%AC020%E5%9B%9E）
+# 查看所有可用指令
+make help
+
+# 基本操作
+make install     # 安裝依賴
+make clean       # 清空所有資料
+make rebuild     # 完整重建
+make server      # 啟動伺服器
+
+# 資料載入（預設使用 Leiden 演算法）
+make load FILE=data.csv ROWS=50
+make load-leiden FILE=data.csv ROWS=100
+make load-louvain FILE=data.csv ROWS=50
+make load-hierarchical FILE=data.csv ROWS=50
+
+# 其他功能
+make search      # 圖譜搜尋
+make demo        # 水滸傳示範
+make cache-stats # 快取統計
+```
+
+### 水滸傳資料示範
+
+```bash
+# 執行完整的 GraphRAG 流程示範
+make demo
+# 或
 node water_margin_demo.js
 ```
 
@@ -34,19 +83,6 @@ node water_margin_demo.js
 - 執行完整的 GraphRAG 流程（圖形提取、實體解析、社群報告）
 - 產生視覺化 HTML 檔案
 - 在瀏覽器中顯示結果
-
-### 5. 快速重建（推薦）
-```bash
-# 完全清空並重建 GraphRAG 流程
-node scripts/rebuild_all.js
-```
-
-此腳本會：
-- 自動檢查必要檔案
-- 清空現有資料（資料庫、快取、暫存檔案）
-- 執行完整的 GraphRAG 流程
-- 驗證重建結果
-- 顯示統計資訊
 
 **⚠️ 執行時間說明：**
 - **總執行時間**: 約 10-30 分鐘（依資料量和網路狀況而定）
@@ -83,7 +119,7 @@ node server.js
 專案的程式碼都位於 `src` 資料夾中，其結構設計旨在將不同的功能模組化。
 
 ```
-graphrag-node-dev/
+GraphRAG/
 ├── node_modules/
 ├── src/
 │   ├── index.js                # 主入口與流程協調器
@@ -149,8 +185,8 @@ graphrag-node-dev/
 -   **`src/fulltext-search.js`**: 全文檢索功能，支援多種搜尋策略（bigram、關鍵字匹配、模糊搜尋），特別針對中文搜尋進行優化。
 
 #### 社群分析
--   **`src/community/community-reports-extractor.js`**: 負責在圖譜上進行**社群發現 (Community Detection)**，找出關聯緊密的實體群組，並使用 LLM 為每個社群生成一份摘要報告。
--   **`src/community/leiden.js`**: Leiden 社群發現演算法的實作，用於高效能的社群劃分。
+-   **`src/community/community-reports-extractor.js`**: 負責在圖譜上進行**社群發現 (Community Detection)**，找出關聯緊密的實體群組，並使用 LLM 為每個社群生成一份摘要報告。**預設使用 Leiden 演算法**。
+-   **`src/community/leiden.js`**: Leiden 社群發現演算法的實作，提供層次化聚類、圖穩定性處理和社群權重計算功能。
 
 #### 資料載入腳本
 -   **`scripts/load_data.js`**: 統一載入腳本，支援多種載入模式（standard、slow、ultra-slow、robust、fixed）。
@@ -198,7 +234,7 @@ graphrag-node-dev/
 
 -   **輸入**: 解析後的知識圖譜。
 -   **過程**:
-    1.  **社群劃分**: 使用 **Louvain 演算法**（一個高效的社群發現演算法）將圖劃分成數個緊密連接的子圖（即社群）。
+    1.  **社群劃分**: 使用 **Leiden 演算法**（本專案預設）將圖劃分成數個緊密連接的子圖（即社群）。
     2.  **報告生成**: 對於每一個社群，將其內部的實體和關係打包成一份上下文，提交給 LLM。
     3.  LLM 根據 `COMMUNITY_REPORT_PROMPT` 的指示，為該社群生成一份結構化的 JSON 報告，包含標題、摘要、影響力評分和主要發現。
 -   **輸出**: 一系列關於圖譜中不同主題的質化分析報告。
@@ -246,7 +282,7 @@ sequenceDiagram
     EntityResolution-->>index.js: 返回解析後的圖譜 (resolved_graph)
 
     index.js->>CommunityReportsExtractor: extract(resolved_graph)
-    Note over CommunityReportsExtractor: 內部執行 Louvain 社群發現演算法
+    Note over CommunityReportsExtractor: 內部執行 Leiden 社群發現演算法
     CommunityReportsExtractor->>LLM: 為每個社群呼叫 LLM 生成報告
     LLM-->>CommunityReportsExtractor: 返回 JSON 格式的報告
     CommunityReportsExtractor-->>index.js: 返回所有社群報告
